@@ -3,6 +3,8 @@ package provider
 import (
 	"encoding/json"
 
+	"strings"
+	
 	"github.com/mailcow/prometheus-exporter/lib/mailcowApi"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -22,6 +24,7 @@ type domainItem struct {
 	Quota        json.Number `json:"max_quota_for_domain"`
 	QuotaUsed    json.Number `json:"bytes_total"`
 	Messages     json.Number `json:"msgs_total"`
+    Tags         []string    `json:"tags"`
 }
 
 func (Domain) Name() string {
@@ -36,9 +39,16 @@ func domainGauge(name string, description string, host string) prometheus.GaugeV
 		ConstLabels: map[string]string{"host": host},
 	}, []string{"domain"})
 }
-
+// Active Domain gauge with tags
+func domainGaugeWithTags(name string, description string, host string) prometheus.GaugeVec {
+    return *prometheus.NewGaugeVec(prometheus.GaugeOpts{
+        Name:        name,
+        Help:        description,
+        ConstLabels: map[string]string{"host": host},
+    }, []string{"domain", "tags"})
+}
 func (domain Domain) Provide(api mailcowApi.MailcowApiClient) ([]prometheus.Collector, error) {
-	active := domainGauge("mailcow_domain_active", "Active flag for this domain", api.Host)
+	active := domainGaugeWithTags("mailcow_domain_active", "Active flag for this domain", api.Host)
 	mailboxes := domainGauge("mailcow_domain_mailboxes", "Current mailboxes count for the domain", api.Host)
 	maxMailboxes := domainGauge("mailcow_domain_max_mailboxes", "Maximum amount of mailboxes for the domain", api.Host)
 	aliases := domainGauge("mailcow_domain_aliases", "Current aliases count for the domain", api.Host)
@@ -55,6 +65,8 @@ func (domain Domain) Provide(api mailcowApi.MailcowApiClient) ([]prometheus.Coll
 	}
 
 	for _, d := range body {
+		tagsLabel := strings.Join(d.Tags, ",")
+		
 		valueActive, err := d.Active.Float64()
 		if err != nil {
 			return collectors, err
@@ -95,7 +107,7 @@ func (domain Domain) Provide(api mailcowApi.MailcowApiClient) ([]prometheus.Coll
 			return collectors, err
 		}
 
-		active.WithLabelValues(d.Domain).Set(valueActive)
+		active.WithLabelValues(d.Domain, tagsLabel).Set(valueActive)
 		mailboxes.WithLabelValues(d.Domain).Set(valueMailboxes)
 		maxMailboxes.WithLabelValues(d.Domain).Set(valueMaxMailboxes)
 		aliases.WithLabelValues(d.Domain).Set(valueAliases)
